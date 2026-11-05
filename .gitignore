@@ -1,0 +1,5 @@
+# Local settings with personal paths
+.env
+
+# Private design notes about my own vault
+specs/
