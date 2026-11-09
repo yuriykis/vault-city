@@ -29,18 +29,6 @@ const (
 	labelMaxWidth = screenWidth - 2*labelMargin - 2*labelPadding
 )
 
-var camModes = map[rl.CameraMode]string{
-	rl.CameraFree:        "FREE",
-	rl.CameraOrbital:     "ORBITAL",
-	rl.CameraFirstPerson: "FIRST PERSON",
-	rl.CameraThirdPerson: "THIRD PERSON",
-}
-
-var camProjections = map[rl.CameraProjection]string{
-	rl.CameraPerspective:  "PERSPECTIVE",
-	rl.CameraOrthographic: "ORTHOGRAPHIC",
-}
-
 func main() {
 	// .env is optional and never overrides variables already set in the shell.
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -205,28 +193,6 @@ func main() {
 
 		rl.EndMode3D()
 
-		// Draw info boxes
-		rl.DrawRectangle(5, 5, 330, 115, rl.Fade(rl.SkyBlue, 0.5))
-		rl.DrawRectangleLines(5, 5, 330, 115, rl.Blue)
-
-		rl.DrawText("Camera controls:", 15, 15, 10, rl.Black)
-		rl.DrawText("- Move keys: W, A, S, D, Space, Left-Ctrl", 15, 30, 10, rl.Black)
-		rl.DrawText("- Look around: arrow keys or mouse", 15, 45, 10, rl.Black)
-		rl.DrawText("- Camera mode keys: 1,2,3,4", 15, 60, 10, rl.Black)
-		rl.DrawText("- Zoom keys: num-plus, num-minus or mouse scroll", 15, 75, 10, rl.Black)
-		rl.DrawText("- Camera projection key: P", 15, 90, 10, rl.Black)
-		rl.DrawText("- Note name or text: Space", 15, 105, 10, rl.Black)
-
-		rl.DrawRectangle(600, 5, 195, 100, rl.Fade(rl.SkyBlue, 0.5))
-		rl.DrawRectangleLines(600, 5, 195, 100, rl.Blue)
-
-		rl.DrawText("Camera status:", 610, 15, 10, rl.Black)
-		rl.DrawText(s2T("Mode:", camModes[cameraMode]), 610, 30, 10, rl.Black)
-		rl.DrawText(s2T("Projection:", camProjections[camera.Projection]), 610, 45, 10, rl.Black)
-		rl.DrawText(s2T("Position:", v2T(camera.Position)), 610, 60, 10, rl.Black)
-		rl.DrawText(s2T("Target:", v2T(camera.Target)), 610, 75, 10, rl.Black)
-		rl.DrawText(s2T("Up:", v2T(camera.Up)), 610, 90, 10, rl.Black)
-
 		// Name the building in the middle of the screen, at the point you aim
 		// at, or show the start of its note.
 		ray := rl.GetScreenToWorldRay(rl.NewVector2(screenWidth/2, screenHeight/2), camera)
@@ -256,14 +222,4 @@ func main() {
 		rl.UnloadFont(font) // while the window's GPU context still exists
 	}
 	rl.CloseWindow()
-}
-
-// s2t generates a Status item string from a name and value
-func s2T(name, value string) string {
-	return fmt.Sprintf(" - %s %s", name, value)
-}
-
-// v2T generates a string from a rl.Vector3
-func v2T(v rl.Vector3) string {
-	return fmt.Sprintf("%6.3f, %6.3f, %6.3f", v.X, v.Y, v.Z)
 }
