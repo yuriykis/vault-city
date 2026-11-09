@@ -488,6 +488,92 @@ func TestLabelRunes(t *testing.T) {
 	}
 }
 
+// TestFogColor checks the fog (R6): unchanged up to fogNear, the sky from
+// fogFar on, linear in between, alpha kept.
+func TestFogColor(t *testing.T) {
+	c := rl.NewColor(100, 50, 200, 255)
+	sky := rl.NewColor(skyColor.R, skyColor.G, skyColor.B, c.A)
+	for _, tt := range []struct {
+		name     string
+		distance float32
+		want     rl.Color
+	}{
+		{"at the camera", 0, c},
+		{"at fogNear", fogNear, c},
+		{"halfway", (fogNear + fogFar) / 2, rl.NewColor(173, 148, 223, 255)}, // (x + 245) / 2, rounded
+		{"at fogFar", fogFar, sky},
+		{"beyond fogFar", fogFar + 100, sky},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fogColor(c, tt.distance); got != tt.want {
+				t.Errorf("fogColor(%v, %v) = %v, want %v", c, tt.distance, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDistanceTo(t *testing.T) {
+	box := rl.BoundingBox{Min: rl.NewVector3(0, 0, 0), Max: rl.NewVector3(3, 5, 3)}
+	for _, tt := range []struct {
+		name string
+		p    rl.Vector3
+		want float32
+	}{
+		{"inside", rl.NewVector3(1, 1, 1), 0},
+		{"beside a wall", rl.NewVector3(-2, 1, 1.5), 2},
+		{"off a corner", rl.NewVector3(-3, 1, -4), 5},
+		{"above the roof", rl.NewVector3(1, 8, 1), 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := distanceTo(tt.p, box); math.Abs(float64(got-tt.want)) > eps {
+				t.Errorf("distanceTo(%v) = %v, want %v", tt.p, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGround(t *testing.T) {
+	c := BuildCity(sampleVault())
+	g := c.Ground()
+	for _, b := range c.Blocks {
+		margin := rl.BoundingBox{
+			Min: rl.Vector3Subtract(b.Box.Min, rl.NewVector3(streetWidth, 0, streetWidth)),
+			Max: rl.Vector3Add(b.Box.Max, rl.NewVector3(streetWidth, 0, streetWidth)),
+		}
+		if !within(margin, g) {
+			t.Errorf("block %q with its street margin is outside the ground %v", b.Name, g)
+		}
+	}
+	if !within(rl.BoundingBox{Min: c.Spawn, Max: c.Spawn}, g) {
+		t.Errorf("spawn %v is off the ground %v", c.Spawn, g)
+	}
+}
+
+// TestGroundTiles checks that the tiles cover a 25×15 ground exactly:
+// 3×2 tiles, the last ones cut to fit, none overlapping.
+func TestGroundTiles(t *testing.T) {
+	g := rl.BoundingBox{Min: rl.NewVector3(-5, 0, -5), Max: rl.NewVector3(20, 0, 10)}
+	tiles := groundTiles(g)
+	if len(tiles) != 6 {
+		t.Fatalf("%d tiles, want 6", len(tiles))
+	}
+	var area float64
+	for i, a := range tiles {
+		if !within(a, g) {
+			t.Errorf("tile %v is outside the ground", a)
+		}
+		area += float64(a.Max.X-a.Min.X) * float64(a.Max.Z-a.Min.Z)
+		for _, b := range tiles[i+1:] {
+			if gap(a, b) < -eps {
+				t.Errorf("tiles %v and %v overlap", a, b)
+			}
+		}
+	}
+	if area != 25*15 {
+		t.Errorf("tiles cover %v, want %v", area, 25*15)
+	}
+}
+
 func TestBuildCityHeight(t *testing.T) {
 	c := BuildCity([]Note{{Name: "A"}, {Name: "B", Inbound: 1}, {Name: "C", Inbound: 3}, {Name: "D", Inbound: 157}})
 	for name, want := range map[string]float64{

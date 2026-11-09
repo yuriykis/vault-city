@@ -20,6 +20,10 @@ const (
 
 	lotPitch = lotSize + alleyWidth // distance between neighboring lot centers
 
+	fogNear  = 20.0  // closer than this, colors are unchanged
+	fogFar   = 120.0 // from this distance on, everything is the sky
+	tileSize = 10.0  // side of a ground square, fogged as a whole
+
 	pickRange   = 60.0 // farthest building whose name is shown
 	labelGap    = 12.0 // pixels between the aim point and the label above it
 	labelMargin = 8.0  // pixels a label keeps from the screen edges
@@ -41,6 +45,9 @@ var categoryPalette = []rl.Color{
 
 // uncategorized colors notes without a category.
 var uncategorized = rl.NewColor(150, 150, 150, 255)
+
+// skyColor is the background, and the fog everything fades into.
+var skyColor = rl.NewColor(245, 245, 245, 255) // raylib's RayWhite
 
 // Building is one note standing on its lot.
 type Building struct {
@@ -288,6 +295,52 @@ func keepOut(walker, other *rl.Vector3, buildings []Building) {
 	moved := pushOut(*walker, buildings)
 	*other = rl.Vector3Add(*other, rl.Vector3Subtract(moved, *walker))
 	*walker = moved
+}
+
+// Ground is the area under the city: every block plus a street-wide margin.
+func (c City) Ground() rl.BoundingBox {
+	g := rl.BoundingBox{Min: rl.NewVector3(-streetWidth, 0, -streetWidth)}
+	for _, b := range c.Blocks {
+		g.Max.X, g.Max.Z = max(g.Max.X, b.Box.Max.X), max(g.Max.Z, b.Box.Max.Z)
+	}
+	g.Max.X += streetWidth
+	g.Max.Z += streetWidth
+	return g
+}
+
+// groundTiles splits the ground into squares of tileSize, smaller along
+// the far edges, so each can fade into the fog on its own.
+func groundTiles(ground rl.BoundingBox) []rl.BoundingBox {
+	var tiles []rl.BoundingBox
+	for x := ground.Min.X; x < ground.Max.X; x += tileSize {
+		for z := ground.Min.Z; z < ground.Max.Z; z += tileSize {
+			tiles = append(tiles, rl.BoundingBox{
+				Min: rl.NewVector3(x, 0, z),
+				Max: rl.NewVector3(min(x+tileSize, ground.Max.X), 0, min(z+tileSize, ground.Max.Z)),
+			})
+		}
+	}
+	return tiles
+}
+
+// distanceTo is how far p is from the nearest point of box; 0 inside it.
+func distanceTo(p rl.Vector3, box rl.BoundingBox) float32 {
+	return rl.Vector3Distance(p, rl.Vector3Clamp(p, box.Min, box.Max))
+}
+
+// fogColor fades c into the sky with distance: unchanged up to fogNear,
+// the sky from fogFar on, linear in between.
+//
+// gstack-shortcut(dec-5227f913): the fog is one shade per building and
+// ground tile, mixed on the CPU each frame, so a tall tower fades as a
+// whole. A fog shader working from each pixel's depth is the upgrade, once
+// the flat shading starts to bother.
+func fogColor(c rl.Color, distance float32) rl.Color {
+	t := float64(min(max((distance-fogNear)/(fogFar-fogNear), 0), 1))
+	mix := func(a, b uint8) uint8 {
+		return uint8(math.Round(float64(a) + t*(float64(b)-float64(a))))
+	}
+	return rl.NewColor(mix(c.R, skyColor.R), mix(c.G, skyColor.G), mix(c.B, skyColor.B), c.A)
 }
 
 // pick returns the building the ray hits first, if that is within

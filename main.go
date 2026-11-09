@@ -61,14 +61,7 @@ func main() {
 	printSummary(os.Stdout, vault)
 
 	city := BuildCity(vault.Notes)
-
-	// The ground covers every block plus a street-wide margin around the city.
-	var cityWidth, cityDepth float32
-	for _, b := range city.Blocks {
-		cityWidth, cityDepth = max(cityWidth, b.Box.Max.X), max(cityDepth, b.Box.Max.Z)
-	}
-	groundCenter := rl.NewVector3(cityWidth/2, 0, cityDepth/2)
-	groundSize := rl.NewVector2(cityWidth+2*streetWidth, cityDepth+2*streetWidth)
+	tiles := groundTiles(city.Ground())
 
 	rl.InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera first person")
 
@@ -173,18 +166,24 @@ func main() {
 
 		rl.BeginDrawing()
 
-		rl.ClearBackground(rl.RayWhite)
+		rl.ClearBackground(skyColor)
 
 		rl.BeginMode3D(camera)
 
-		rl.DrawPlane(groundCenter, groundSize, rl.LightGray)
+		// Everything fades into the sky with distance (gstack-shortcut(dec-5227f913)).
+		for _, t := range tiles {
+			size := rl.Vector3Subtract(t.Max, t.Min)
+			center := rl.Vector3Add(t.Min, rl.Vector3Scale(size, 0.5))
+			rl.DrawPlane(center, rl.NewVector2(size.X, size.Z), fogColor(rl.LightGray, distanceTo(camera.Position, t)))
+		}
 
 		// One box per note; the wires keep edges visible without lighting.
 		for _, b := range city.Buildings {
 			size := rl.Vector3Subtract(b.Box.Max, b.Box.Min)
 			center := rl.Vector3Add(b.Box.Min, rl.Vector3Scale(size, 0.5))
-			rl.DrawCubeV(center, size, b.Color)
-			rl.DrawCubeWiresV(center, size, rl.DarkGray)
+			distance := distanceTo(camera.Position, b.Box)
+			rl.DrawCubeV(center, size, fogColor(b.Color, distance))
+			rl.DrawCubeWiresV(center, size, fogColor(rl.DarkGray, distance))
 		}
 
 		// Draw player cube
