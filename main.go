@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	maxColumns   = 20
 	screenWidth  = 800
 	screenHeight = 450
+	eyeHeight    = 2.0 // camera above the ground, as in the raylib example
 	False        = 0
 	True         = 1
 )
@@ -54,28 +54,27 @@ func main() {
 	fmt.Println("Vault:", *vaultPath)
 	printSummary(os.Stdout, vault)
 
+	city := BuildCity(vault.Notes)
+
+	// The ground covers every block plus a street-wide margin around the city.
+	var cityWidth, cityDepth float32
+	for _, b := range city.Blocks {
+		cityWidth, cityDepth = max(cityWidth, b.Box.Max.X), max(cityDepth, b.Box.Max.Z)
+	}
+	groundCenter := rl.NewVector3(cityWidth/2, 0, cityDepth/2)
+	groundSize := rl.NewVector2(cityWidth+2*streetWidth, cityDepth+2*streetWidth)
+
 	rl.InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera first person")
 
-	// Define the camera to look into our 3d world (position, target, up vector)
+	// Start on the street in front of the largest district, facing its hub.
 	camera := rl.Camera3D{}
-	camera.Position = rl.NewVector3(0.0, 2.0, 4.0) // Camera position
-	camera.Target = rl.NewVector3(0.0, 2.0, 0.0)   // Camera looking at point
-	camera.Up = rl.NewVector3(0.0, 1.0, 0.0)       // Camera up vector (rotation towards target)
-	camera.Fovy = 60.0                             // Camera field-of-view Y
-	camera.Projection = rl.CameraPerspective       // Camera projection type
+	camera.Position = rl.Vector3Add(city.Spawn, rl.NewVector3(0, eyeHeight, 0))
+	camera.Target = rl.Vector3Add(camera.Position, city.Facing)
+	camera.Up = rl.NewVector3(0.0, 1.0, 0.0) // Camera up vector (rotation towards target)
+	camera.Fovy = 60.0                       // Camera field-of-view Y
+	camera.Projection = rl.CameraPerspective // Camera projection type
 
 	cameraMode := rl.CameraFirstPerson
-
-	// Generates some random columns
-	heights := make([]float32, maxColumns)
-	positions := make([]rl.Vector3, maxColumns)
-	colors := make([]rl.Color, maxColumns)
-
-	for i := 0; i < maxColumns; i++ {
-		heights[i] = rndF(1, 12)
-		positions[i] = rl.NewVector3(rndF(-15, 15), heights[i]/2, rndF(-15, 15))
-		colors[i] = rl.NewColor(rndU(20, 255), rndU(10, 55), 30, 255)
-	}
 
 	rl.DisableCursor()  // Limit cursor to relative movement inside the window
 	rl.SetTargetFPS(60) // Set our game to run at 60 frames-per-second
@@ -154,15 +153,14 @@ func main() {
 
 		rl.BeginMode3D(camera)
 
-		rl.DrawPlane(rl.NewVector3(0.0, 0.0, 0.0), rl.NewVector2(32.0, 32.0), rl.LightGray) // Draw ground
-		rl.DrawCube(rl.NewVector3(-16.0, 2.5, 0.0), 1.0, 5.0, 32.0, rl.Blue)                // Draw a blue wall
-		rl.DrawCube(rl.NewVector3(16.0, 2.5, 0.0), 1.0, 5.0, 32.0, rl.Lime)                 // Draw a green wall
-		rl.DrawCube(rl.NewVector3(0.0, 2.5, 16.0), 32.0, 5.0, 1.0, rl.Gold)                 // Draw a yellow wall
+		rl.DrawPlane(groundCenter, groundSize, rl.LightGray)
 
-		// Draw some cubes around
-		for i := 0; i < maxColumns; i++ {
-			rl.DrawCube(positions[i], 2.0, heights[i], 2.0, colors[i])
-			rl.DrawCubeWires(positions[i], 2.0, heights[i], 2.0, rl.Maroon)
+		// One box per note; the wires keep edges visible without lighting.
+		for _, b := range city.Buildings {
+			size := rl.Vector3Subtract(b.Box.Max, b.Box.Min)
+			center := rl.Vector3Add(b.Box.Min, rl.Vector3Scale(size, 0.5))
+			rl.DrawCubeV(center, size, b.Color)
+			rl.DrawCubeWiresV(center, size, rl.DarkGray)
 		}
 
 		// Draw player cube
@@ -194,20 +192,12 @@ func main() {
 		rl.DrawText(s2T("Target:", v2T(camera.Target)), 610, 75, 10, rl.Black)
 		rl.DrawText(s2T("Up:", v2T(camera.Up)), 610, 90, 10, rl.Black)
 
+		rl.DrawFPS(10, screenHeight-25)
+
 		rl.EndDrawing()
 	}
 
 	rl.CloseWindow()
-}
-
-// rndU generates a random uint8 value between min and max
-func rndU(min, max int32) uint8 {
-	return uint8(rl.GetRandomValue(min, max))
-}
-
-// rndF generates a random float32 value between min and max
-func rndF(min, max int32) float32 {
-	return float32(rl.GetRandomValue(min, max))
 }
 
 // s2t generates a Status item string from a name and value
