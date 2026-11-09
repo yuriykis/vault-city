@@ -102,7 +102,8 @@ func main() {
 		// Switch camera projection
 		if rl.IsKeyPressed(rl.KeyP) {
 			cameraMode = rl.CameraThirdPerson
-			if camera.Projection == rl.CameraPerspective {
+			switch camera.Projection {
+			case rl.CameraPerspective:
 				// Create isometric view
 				// Note: The target distance is related to the render distance in the orthographic projection
 				camera.Position = rl.NewVector3(0.0, 2.0, -100.0)
@@ -112,7 +113,7 @@ func main() {
 				camera.Fovy = 20.0 // near plane width in CAMERA_ORTHOGRAPHIC
 				rl.CameraYaw(&camera, -135*rl.Deg2rad, True)
 				rl.CameraPitch(&camera, -45*rl.Deg2rad, True, True, False)
-			} else if camera.Projection == rl.CameraOrthographic {
+			case rl.CameraOrthographic:
 				// Reset to default view
 				camera.Position = rl.NewVector3(0.0, 2.0, 10.0)
 				camera.Target = rl.NewVector3(0.0, 2.0, 0.0)
