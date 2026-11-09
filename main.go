@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,7 +24,9 @@ const (
 	// names are drawn with the system Arial.
 	labelFontPath = "/System/Library/Fonts/Supplemental/Arial.ttf"
 	labelFontSize = 20
-	labelPadding  = 6.0 // pixels between a label's text and its background edge
+	labelPadding  = 6.0               // pixels between a label's text and its background edge
+	labelLineStep = labelFontSize + 4 // pixels from one label line to the next
+	labelMaxWidth = screenWidth - 2*labelMargin - 2*labelPadding
 )
 
 var camModes = map[rl.CameraMode]string{
@@ -81,6 +84,8 @@ func main() {
 	} else {
 		font, fontLoaded = rl.LoadFontEx(labelFontPath, labelFontSize, labelRunes(vault.Notes)), true
 	}
+	labelWidth := func(s string) float32 { return rl.MeasureTextEx(font, s, labelFontSize, 1).X }
+	showText := false // the label shows the note's name, or its text
 
 	rl.DisableCursor()  // Limit cursor to relative movement inside the window
 	rl.SetTargetFPS(60) // Set our game to run at 60 frames-per-second
@@ -127,6 +132,12 @@ func main() {
 				camera.Projection = rl.CameraPerspective
 				camera.Fovy = 60.0
 			}
+		}
+
+		// Switch the label between the note's name and its text. In free mode
+		// Space also flies up.
+		if rl.IsKeyPressed(rl.KeySpace) {
+			showText = !showText
 		}
 
 		// Update camera computes movement internally depending on the camera mode.
@@ -195,8 +206,8 @@ func main() {
 		rl.EndMode3D()
 
 		// Draw info boxes
-		rl.DrawRectangle(5, 5, 330, 100, rl.Fade(rl.SkyBlue, 0.5))
-		rl.DrawRectangleLines(5, 5, 330, 100, rl.Blue)
+		rl.DrawRectangle(5, 5, 330, 115, rl.Fade(rl.SkyBlue, 0.5))
+		rl.DrawRectangleLines(5, 5, 330, 115, rl.Blue)
 
 		rl.DrawText("Camera controls:", 15, 15, 10, rl.Black)
 		rl.DrawText("- Move keys: W, A, S, D, Space, Left-Ctrl", 15, 30, 10, rl.Black)
@@ -204,6 +215,7 @@ func main() {
 		rl.DrawText("- Camera mode keys: 1,2,3,4", 15, 60, 10, rl.Black)
 		rl.DrawText("- Zoom keys: num-plus, num-minus or mouse scroll", 15, 75, 10, rl.Black)
 		rl.DrawText("- Camera projection key: P", 15, 90, 10, rl.Black)
+		rl.DrawText("- Note name or text: Space", 15, 105, 10, rl.Black)
 
 		rl.DrawRectangle(600, 5, 195, 100, rl.Fade(rl.SkyBlue, 0.5))
 		rl.DrawRectangleLines(600, 5, 195, 100, rl.Blue)
@@ -215,14 +227,24 @@ func main() {
 		rl.DrawText(s2T("Target:", v2T(camera.Target)), 610, 75, 10, rl.Black)
 		rl.DrawText(s2T("Up:", v2T(camera.Up)), 610, 90, 10, rl.Black)
 
-		// Name the building in the middle of the screen, at the point you aim at.
+		// Name the building in the middle of the screen, at the point you aim
+		// at, or show the start of its note.
 		ray := rl.GetScreenToWorldRay(rl.NewVector2(screenWidth/2, screenHeight/2), camera)
 		if b, at, ok := pick(ray, city.Buildings); ok {
-			size := rl.MeasureTextEx(font, b.Name, labelFontSize, 1)
+			lines := []string{b.Name}
+			if showText {
+				lines = wrapText(cmp.Or(b.Text, "(empty note)"), labelMaxWidth, labelLines, labelWidth)
+			}
+			size := rl.NewVector2(0, float32(len(lines)-1)*labelLineStep+labelFontSize)
+			for _, line := range lines {
+				size.X = max(size.X, labelWidth(line))
+			}
 			pos := labelPosition(rl.GetWorldToScreen(at, camera), size, screenWidth, screenHeight)
 			pad := rl.NewVector2(labelPadding, labelPadding)
 			rl.DrawRectangleV(rl.Vector2Subtract(pos, pad), rl.Vector2Add(size, rl.Vector2Scale(pad, 2)), rl.Fade(rl.Black, 0.6))
-			rl.DrawTextEx(font, b.Name, pos, labelFontSize, 1, rl.White)
+			for i, line := range lines {
+				rl.DrawTextEx(font, line, rl.NewVector2(pos.X, pos.Y+float32(i)*labelLineStep), labelFontSize, 1, rl.White)
+			}
 		}
 
 		rl.DrawFPS(10, screenHeight-25)

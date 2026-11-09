@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"unicode"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -27,6 +28,7 @@ const (
 	pickRange   = 60.0 // farthest building whose name is shown
 	labelGap    = 12.0 // pixels between the aim point and the label above it
 	labelMargin = 8.0  // pixels a label keeps from the screen edges
+	labelLines  = 10   // most lines of a note's text a label shows
 )
 
 // categoryPalette colors categories in name order (Okabe-Ito plus two);
@@ -52,6 +54,7 @@ var skyColor = rl.NewColor(245, 245, 245, 255) // raylib's RayWhite
 // Building is one note standing on its lot.
 type Building struct {
 	Name  string
+	Text  string // the note's text after its frontmatter
 	Box   rl.BoundingBox
 	Color rl.Color
 }
@@ -215,6 +218,7 @@ func placeBuildings(d *district, x, z float64, colors map[string]rl.Color) []Bui
 		cz := z + float64(lot/s)*lotPitch + lotSize/2
 		out = append(out, Building{
 			Name: n.Name,
+			Text: n.Body,
 			Box: rl.BoundingBox{
 				Min: rl.NewVector3(float32(cx-lotSize/2), 0, float32(cz-lotSize/2)),
 				Max: rl.NewVector3(float32(cx+lotSize/2), float32(height(n.Inbound)), float32(cz+lotSize/2)),
@@ -365,16 +369,72 @@ func labelPosition(at, size rl.Vector2, screenWidth, screenHeight float32) rl.Ve
 		max(labelMargin, min(y, screenHeight-labelMargin-size.Y)))
 }
 
-// labelRunes lists every character a label may need: printable ASCII and
-// whatever the note names use, such as Polish letters, Cyrillic or "—".
+// wrapText breaks text into at most maxLines lines no wider than maxWidth,
+// as measured by width: at spaces when it can, inside a word too long for a
+// line. Blank lines and indents stay, tabs become spaces. When the text
+// doesn't fit, the last line ends in "…". Each line of text gives at least
+// one line, so only the first maxLines lines of text can show.
+func wrapText(text string, maxWidth float32, maxLines int, width func(string) float32) []string {
+	var lines []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if len(lines) > maxLines {
+			break
+		}
+		lines = append(lines, wrapLine(strings.ReplaceAll(line, "\t", "    "), maxWidth, width)...)
+	}
+	if len(lines) <= maxLines {
+		return lines
+	}
+	lines = lines[:maxLines]
+	last := []rune(lines[maxLines-1])
+	for len(last) > 0 && width(string(last)+"…") > maxWidth {
+		last = last[:len(last)-1]
+	}
+	lines[maxLines-1] = string(last) + "…"
+	return lines
+}
+
+// wrapLine breaks one line of text into lines no wider than maxWidth (see
+// wrapText). A line always takes at least one character, however wide.
+func wrapLine(line string, maxWidth float32, width func(string) float32) []string {
+	var out []string
+	cur, started := "", false
+	for word := range strings.SplitSeq(line, " ") {
+		if started {
+			if next := cur + " " + word; width(next) <= maxWidth {
+				cur = next
+				continue
+			}
+			out = append(out, cur)
+		}
+		cur, started = "", true // word starts a line, split if it's too wide alone
+		for _, r := range word {
+			if next := cur + string(r); cur == "" || width(next) <= maxWidth {
+				cur = next
+			} else {
+				out = append(out, cur)
+				cur = string(r)
+			}
+		}
+	}
+	return append(out, cur)
+}
+
+// labelRunes lists every character a label may need: printable ASCII, "…",
+// and whatever the note names and the text a label can show use, such as
+// Polish letters, Cyrillic or "—". Text past the first labelLines lines
+// never shows (see wrapText), so its characters aren't loaded.
 func labelRunes(notes []Note) []rune {
-	var runes []rune
+	runes := []rune{'…'}
 	for r := ' '; r <= '~'; r++ {
 		runes = append(runes, r)
 	}
 	for _, n := range notes {
 		runes = append(runes, []rune(n.Name)...)
+		shown := strings.SplitN(n.Body, "\n", labelLines+1)
+		runes = append(runes, []rune(strings.Join(shown[:min(labelLines, len(shown))], ""))...)
 	}
+	runes = slices.DeleteFunc(runes, unicode.IsControl) // tabs are drawn as spaces
 	slices.Sort(runes)
 	return slices.Compact(runes)
 }

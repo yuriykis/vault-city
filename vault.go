@@ -24,6 +24,7 @@ type Note struct {
 	Topic    string // district; empty for the suburbs
 	Category string // building color
 	Inbound  int    // how many other notes in Notes/ link here
+	Body     string // the text after the frontmatter, LF line ends, trimmed
 }
 
 // Vault is everything the game knows about the vault.
@@ -59,6 +60,7 @@ func LoadVault(vault fs.FS) (Vault, error) {
 			return Vault{}, err
 		}
 		text := string(data)
+		_, body, _ := splitFrontmatter(text)
 		props, err := frontmatter(text)
 		if err != nil {
 			v.Warnings = append(v.Warnings, fmt.Sprintf(
@@ -77,6 +79,7 @@ func LoadVault(vault fs.FS) (Vault, error) {
 			Name:     norm.NFC.String(name),
 			Topic:    topic,
 			Category: category,
+			Body:     norm.NFC.String(strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))),
 		})
 		links := linkTexts(text)
 		outgoing = append(outgoing, links)
@@ -109,14 +112,7 @@ func LoadVault(vault fs.FS) (Vault, error) {
 // frontmatter parses the YAML block between the leading "---" lines into
 // its properties; a note without one has none. LF and CRLF both work.
 func frontmatter(text string) (map[string]yaml.Node, error) {
-	rest, ok := strings.CutPrefix(text, "---\n")
-	if !ok {
-		rest, ok = strings.CutPrefix(text, "---\r\n")
-	}
-	if !ok {
-		return nil, nil
-	}
-	front, _, ok := strings.Cut(rest, "\n---")
+	front, _, ok := splitFrontmatter(text)
 	if !ok {
 		return nil, nil
 	}
@@ -125,6 +121,25 @@ func frontmatter(text string) (map[string]yaml.Node, error) {
 		return nil, err
 	}
 	return props, nil
+}
+
+// splitFrontmatter cuts text into the YAML block between the leading "---"
+// lines and the rest of the note. Without such a block, ok is false and
+// body is the whole text.
+func splitFrontmatter(text string) (front, body string, ok bool) {
+	rest, ok := strings.CutPrefix(text, "---\n")
+	if !ok {
+		rest, ok = strings.CutPrefix(text, "---\r\n")
+	}
+	if !ok {
+		return "", text, false
+	}
+	front, after, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return "", text, false
+	}
+	_, body, _ = strings.Cut(after, "\n") // skip the rest of the closing line
+	return front, body, true
 }
 
 // propertyName returns the note name a frontmatter property points to, so

@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -477,10 +478,16 @@ func TestLabelPosition(t *testing.T) {
 }
 
 func TestLabelRunes(t *testing.T) {
-	runes := labelRunes([]Note{{Name: zabaNFC + " — Привет"}, {Name: "Żółw"}, {Name: "abc"}})
-	for _, r := range []rune("AZaz09 ~Żółw—Привет") {
+	body := "Ćma\tłąka" + strings.Repeat("\n", labelLines-1) + "ę on the last line shown\nß past it"
+	runes := labelRunes([]Note{{Name: zabaNFC + " — Привет"}, {Name: "Żółw", Body: body}, {Name: "abc"}})
+	for _, r := range []rune("AZaz09 ~Żółw—Привет…Ćmałąkaę") {
 		if !slices.Contains(runes, r) {
 			t.Errorf("labelRunes lacks %q", r)
+		}
+	}
+	for _, r := range []rune("ß\t\n") {
+		if slices.Contains(runes, r) {
+			t.Errorf("labelRunes has %q, which a label never draws", r)
 		}
 	}
 	if !slices.IsSorted(runes) || len(slices.Compact(slices.Clone(runes))) != len(runes) {
@@ -604,5 +611,53 @@ func TestBuildCityColors(t *testing.T) {
 		if got := buildingNamed(t, c, name).Color; got != want {
 			t.Errorf("%s color = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestBuildCityText(t *testing.T) {
+	c := BuildCity([]Note{{Name: "A", Body: "First line"}, {Name: "B"}})
+	for name, want := range map[string]string{"A": "First line", "B": ""} {
+		if got := buildingNamed(t, c, name).Text; got != want {
+			t.Errorf("%s text = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestWrapText wraps note text into labels 10 characters wide, measured as
+// one unit per character.
+func TestWrapText(t *testing.T) {
+	width := func(s string) float32 { return float32(len([]rune(s))) }
+	for _, tt := range []struct {
+		name     string
+		text     string
+		maxLines int
+		want     []string
+	}{
+		{"fits", "short", 3, []string{"short"}},
+		{"breaks at spaces", "one two three four", 3, []string{"one two", "three four"}},
+		{"exactly the width", "0123456789", 3, []string{"0123456789"}},
+		{"splits a long word", "abcdefghijklmnopqrstuvwxyz", 3, []string{"abcdefghij", "klmnopqrst", "uvwxyz"}},
+		{"long word after a short one", "ab abcdefghijkl", 3, []string{"ab", "abcdefghij", "kl"}},
+		{"keeps blank lines", "a\n\nb", 3, []string{"a", "", "b"}},
+		{"keeps indents", "- a\n  - b", 3, []string{"- a", "  - b"}},
+		{"tab becomes spaces", "\tb", 3, []string{"    b"}},
+		{"Polish letters count once", "żółć żółć", 3, []string{"żółć żółć"}},
+		{"more lines than fit", "1\n2\n3\n4", 3, []string{"1", "2", "3…"}},
+		{"wrapped lines past the limit", "one two three four five six", 2, []string{"one two", "three fou…"}},
+		{"ellipsis on a full line", "0123456789\nmore", 1, []string{"012345678…"}},
+		{"just fits", "1\n2\n3", 3, []string{"1", "2", "3"}},
+		{"empty", "", 3, []string{""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapText(tt.text, 10, tt.maxLines, width)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("wrapText(%q, %d lines) = %q, want %q", tt.text, tt.maxLines, got, tt.want)
+			}
+			for _, line := range got {
+				if width(line) > 10 {
+					t.Errorf("line %q is wider than 10", line)
+				}
+			}
+		})
 	}
 }

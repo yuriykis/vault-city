@@ -333,3 +333,32 @@ func TestLoadVaultWithoutNotes(t *testing.T) {
 		t.Error("LoadVault without a Notes folder: got nil error")
 	}
 }
+
+// TestLoadVaultBody checks the note text a label shows: what follows the
+// frontmatter, with LF line ends, trimmed and Unicode-normalized.
+func TestLoadVaultBody(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"no frontmatter", "# A\n\nFirst line\n", "# A\n\nFirst line"},
+		{"after frontmatter", "---\ntopic: \"[[Cooking]]\"\n---\n\nFirst line\nSecond line\n", "First line\nSecond line"},
+		{"CRLF", "---\r\ntopic: Cooking\r\n---\r\nFirst line\r\nSecond line\r\n", "First line\nSecond line"},
+		{"only frontmatter", "---\ntopic: Cooking\n---\n", ""},
+		{"frontmatter closed at the end", "---\ntopic: Cooking\n---", ""},
+		{"invalid YAML still skipped", "---\ncategory: [unclosed\n---\nText", "Text"},
+		{"unclosed frontmatter is text", "---\ntopic: Cooking\n", "---\ntopic: Cooking"},
+		{"thematic break later on", "Intro\n\n---\n\nMore", "Intro\n\n---\n\nMore"},
+		{"decomposed letters", "O " + zabaNFD, "O " + zabaNFC},
+		{"empty note", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := load(t, files{"Notes/A.md": tt.text})
+			if got := v.Notes[0].Body; got != tt.want {
+				t.Errorf("Notes/A.md = %q: Body = %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
