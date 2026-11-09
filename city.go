@@ -247,6 +247,45 @@ func categoryColors(notes []Note) map[string]rl.Color {
 	return colors
 }
 
+// pushOut returns pos moved out of every building it has entered, so the
+// player keeps playerRadius from each wall. It moves along the axis that
+// needs the shortest push, so walking into a wall stops you and walking
+// along it slides. Higher than playerRadius above a roof, nothing blocks.
+func pushOut(pos rl.Vector3, buildings []Building) rl.Vector3 {
+	const r = playerRadius
+	for _, b := range buildings {
+		if pos.Y >= b.Box.Max.Y+r {
+			continue
+		}
+		toMinX := pos.X - (b.Box.Min.X - r) // how far each side must move to get out
+		toMaxX := b.Box.Max.X + r - pos.X
+		toMinZ := pos.Z - (b.Box.Min.Z - r)
+		toMaxZ := b.Box.Max.Z + r - pos.Z
+		if toMinX <= 0 || toMaxX <= 0 || toMinZ <= 0 || toMaxZ <= 0 {
+			continue // outside, or exactly playerRadius from a wall
+		}
+		switch min(toMinX, toMaxX, toMinZ, toMaxZ) {
+		case toMinX:
+			pos.X = b.Box.Min.X - r
+		case toMaxX:
+			pos.X = b.Box.Max.X + r
+		case toMinZ:
+			pos.Z = b.Box.Min.Z - r
+		default:
+			pos.Z = b.Box.Max.Z + r
+		}
+	}
+	return pos
+}
+
+// keepOut moves walker out of any building it entered (see pushOut) and
+// other by the same amount, so the camera's view doesn't turn.
+func keepOut(walker, other *rl.Vector3, buildings []Building) {
+	moved := pushOut(*walker, buildings)
+	*other = rl.Vector3Add(*other, rl.Vector3Subtract(moved, *walker))
+	*walker = moved
+}
+
 // spawn returns a point on the street in front of the first district block
 // (the largest), or of the suburbs when there are no districts, and the
 // direction toward its center lot.

@@ -128,6 +128,16 @@ func main() {
 		// For advance camera controls, it's recommended to compute camera movement manually.
 		rl.UpdateCamera(&camera, cameraMode) // Update camera
 
+		// Buildings are solid for whoever walks: the camera in first person,
+		// the player cube at the target in third person. Free and orbital
+		// modes fly through everything.
+		switch cameraMode {
+		case rl.CameraFirstPerson:
+			keepOut(&camera.Position, &camera.Target, city.Buildings)
+		case rl.CameraThirdPerson:
+			keepOut(&camera.Target, &camera.Position, city.Buildings)
+		}
+
 		/*
 		   // Camera PRO usage example (EXPERIMENTAL)
 		   // This new camera function allows custom movement/rotation values to be directly provided

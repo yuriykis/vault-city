@@ -307,6 +307,102 @@ func checkSpawnOutside(t *testing.T, c City) {
 	}
 }
 
+// TestPushOut checks how a building 3×3 wide and 5 high pushes the player
+// out along the shortest axis, keeping playerRadius (0.5) from its walls.
+func TestPushOut(t *testing.T) {
+	box := []Building{{Name: "A", Box: rl.BoundingBox{Min: rl.NewVector3(0, 0, 0), Max: rl.NewVector3(3, 5, 3)}}}
+	for _, tt := range []struct {
+		name     string
+		pos, out rl.Vector3
+	}{
+		{"street", rl.NewVector3(10, 2, 10), rl.NewVector3(10, 2, 10)},
+		{"exactly the radius away", rl.NewVector3(-0.5, 2, 1.5), rl.NewVector3(-0.5, 2, 1.5)},
+		{"inside near the min x wall", rl.NewVector3(0.2, 2, 1.5), rl.NewVector3(-0.5, 2, 1.5)},
+		{"too close to the max x wall", rl.NewVector3(3.3, 2, 1), rl.NewVector3(3.5, 2, 1)},
+		{"inside near the min z wall", rl.NewVector3(1.4, 2, 0.1), rl.NewVector3(1.4, 2, -0.5)},
+		{"too close to the max z wall", rl.NewVector3(2, 2, 3.2), rl.NewVector3(2, 2, 3.5)},
+		{"corner goes along the shorter axis", rl.NewVector3(-0.4, 2, -0.1), rl.NewVector3(-0.5, 2, -0.1)},
+		{"just below roof plus radius", rl.NewVector3(0.2, 5.4, 1.5), rl.NewVector3(-0.5, 5.4, 1.5)},
+		{"above the roof", rl.NewVector3(1.5, 5.5, 1.5), rl.NewVector3(1.5, 5.5, 1.5)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pushOut(tt.pos, box); rl.Vector3Distance(got, tt.out) > eps {
+				t.Errorf("pushOut(%v) = %v, want %v", tt.pos, got, tt.out)
+			}
+		})
+	}
+}
+
+func TestKeepOut(t *testing.T) {
+	box := []Building{{Name: "A", Box: rl.BoundingBox{Min: rl.NewVector3(0, 0, 0), Max: rl.NewVector3(3, 5, 3)}}}
+	walker, other := rl.NewVector3(0.2, 2, 1.5), rl.NewVector3(-10, 3, 1.5)
+	keepOut(&walker, &other, box)
+	if want := rl.NewVector3(-0.5, 2, 1.5); rl.Vector3Distance(walker, want) > eps {
+		t.Errorf("walker = %v, want %v", walker, want)
+	}
+	if want := rl.NewVector3(-10.7, 3, 1.5); rl.Vector3Distance(other, want) > eps {
+		t.Errorf("other = %v, want %v, moved by as much as the walker", other, want)
+	}
+}
+
+// TestBuildCityEveryBuildingReachable walks from the spawn at eye height
+// over a half-unit grid, through every point the buildings don't push the
+// player out of, and checks it gets right next to every building, hubs in
+// the middle of their blocks included (R11).
+func TestBuildCityEveryBuildingReachable(t *testing.T) {
+	c := BuildCity(sampleVault())
+	const step = 0.5
+	var maxX, maxZ float64
+	for _, b := range c.Blocks {
+		maxX, maxZ = max(maxX, float64(b.Box.Max.X)), max(maxZ, float64(b.Box.Max.Z))
+	}
+	origin := -streetWidth
+	nx, nz := int((maxX+2*streetWidth)/step)+1, int((maxZ+2*streetWidth)/step)+1
+	point := func(i, j int) rl.Vector3 {
+		return rl.NewVector3(float32(origin+float64(i)*step), eyeHeight, float32(origin+float64(j)*step))
+	}
+	cell := func(x, z float32) (int, int) {
+		return int(math.Round((float64(x) - origin) / step)), int(math.Round((float64(z) - origin) / step))
+	}
+
+	reached := make([][]bool, nx)
+	for i := range reached {
+		reached[i] = make([]bool, nz)
+	}
+	i0, j0 := cell(c.Spawn.X, c.Spawn.Z)
+	queue := [][2]int{{i0, j0}}
+	reached[i0][j0] = true
+	for len(queue) > 0 {
+		i, j := queue[0][0], queue[0][1]
+		queue = queue[1:]
+		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			ni, nj := i+d[0], j+d[1]
+			if ni < 0 || nj < 0 || ni >= nx || nj >= nz || reached[ni][nj] {
+				continue
+			}
+			if p := point(ni, nj); pushOut(p, c.Buildings) == p {
+				reached[ni][nj] = true
+				queue = append(queue, [2]int{ni, nj})
+			}
+		}
+	}
+
+	for _, b := range c.Buildings {
+		x, z := center(b.Box)
+		// The middle of each side, exactly playerRadius from the wall.
+		sides := [][2]float64{
+			{x, float64(b.Box.Min.Z) - playerRadius}, {x, float64(b.Box.Max.Z) + playerRadius},
+			{float64(b.Box.Min.X) - playerRadius, z}, {float64(b.Box.Max.X) + playerRadius, z},
+		}
+		if !slices.ContainsFunc(sides, func(s [2]float64) bool {
+			i, j := cell(float32(s[0]), float32(s[1]))
+			return reached[i][j]
+		}) {
+			t.Errorf("building %q can't be reached from the spawn", b.Name)
+		}
+	}
+}
+
 func TestBuildCityHeight(t *testing.T) {
 	c := BuildCity([]Note{{Name: "A"}, {Name: "B", Inbound: 1}, {Name: "C", Inbound: 3}, {Name: "D", Inbound: 157}})
 	for name, want := range map[string]float64{
