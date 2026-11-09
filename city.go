@@ -19,6 +19,10 @@ const (
 	heightPerDoubling = 3.0 // added each time the inbound link count doubles
 
 	lotPitch = lotSize + alleyWidth // distance between neighboring lot centers
+
+	pickRange   = 60.0 // farthest building whose name is shown
+	labelGap    = 12.0 // pixels between the aim point and the label above it
+	labelMargin = 8.0  // pixels a label keeps from the screen edges
 )
 
 // categoryPalette colors categories in name order (Okabe-Ito plus two);
@@ -284,6 +288,42 @@ func keepOut(walker, other *rl.Vector3, buildings []Building) {
 	moved := pushOut(*walker, buildings)
 	*other = rl.Vector3Add(*other, rl.Vector3Subtract(moved, *walker))
 	*walker = moved
+}
+
+// pick returns the building the ray hits first, if that is within
+// pickRange, and the point where the ray hits it.
+func pick(ray rl.Ray, buildings []Building) (b Building, at rl.Vector3, ok bool) {
+	nearest := float32(pickRange)
+	for _, c := range buildings {
+		if hit := rl.GetRayCollisionBox(ray, c.Box); hit.Hit && hit.Distance <= nearest {
+			b, at, ok, nearest = c, hit.Point, true, hit.Distance
+		}
+	}
+	return b, at, ok
+}
+
+// labelPosition is where a label of the given size goes: centered just
+// above the screen point, moved in to stay whole on the screen.
+func labelPosition(at, size rl.Vector2, screenWidth, screenHeight float32) rl.Vector2 {
+	x := at.X - size.X/2
+	y := at.Y - labelGap - size.Y
+	return rl.NewVector2(
+		max(labelMargin, min(x, screenWidth-labelMargin-size.X)),
+		max(labelMargin, min(y, screenHeight-labelMargin-size.Y)))
+}
+
+// labelRunes lists every character a label may need: printable ASCII and
+// whatever the note names use, such as Polish letters, Cyrillic or "—".
+func labelRunes(notes []Note) []rune {
+	var runes []rune
+	for r := ' '; r <= '~'; r++ {
+		runes = append(runes, r)
+	}
+	for _, n := range notes {
+		runes = append(runes, []rune(n.Name)...)
+	}
+	slices.Sort(runes)
+	return slices.Compact(runes)
 }
 
 // spawn returns a point on the street in front of the first district block

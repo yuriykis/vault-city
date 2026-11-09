@@ -15,9 +15,15 @@ import (
 const (
 	screenWidth  = 800
 	screenHeight = 450
-	eyeHeight    = 2.0 // camera above the ground, as in the raylib example
+	eyeHeight    = 1.7 // below the lowest roof (minHeight), so the aim ray hits the wall in front
 	False        = 0
 	True         = 1
+
+	// raylib's default font only has Latin-1, so Polish and Cyrillic note
+	// names are drawn with the system Arial.
+	labelFontPath = "/System/Library/Fonts/Supplemental/Arial.ttf"
+	labelFontSize = 20
+	labelPadding  = 6.0 // pixels between a label's text and its background edge
 )
 
 var camModes = map[rl.CameraMode]string{
@@ -75,6 +81,13 @@ func main() {
 	camera.Projection = rl.CameraPerspective // Camera projection type
 
 	cameraMode := rl.CameraFirstPerson
+
+	font, fontLoaded := rl.GetFontDefault(), false
+	if _, err := os.Stat(labelFontPath); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: names may lose letters, no label font:", err)
+	} else {
+		font, fontLoaded = rl.LoadFontEx(labelFontPath, labelFontSize, labelRunes(vault.Notes)), true
+	}
 
 	rl.DisableCursor()  // Limit cursor to relative movement inside the window
 	rl.SetTargetFPS(60) // Set our game to run at 60 frames-per-second
@@ -203,11 +216,24 @@ func main() {
 		rl.DrawText(s2T("Target:", v2T(camera.Target)), 610, 75, 10, rl.Black)
 		rl.DrawText(s2T("Up:", v2T(camera.Up)), 610, 90, 10, rl.Black)
 
+		// Name the building in the middle of the screen, at the point you aim at.
+		ray := rl.GetScreenToWorldRay(rl.NewVector2(screenWidth/2, screenHeight/2), camera)
+		if b, at, ok := pick(ray, city.Buildings); ok {
+			size := rl.MeasureTextEx(font, b.Name, labelFontSize, 1)
+			pos := labelPosition(rl.GetWorldToScreen(at, camera), size, screenWidth, screenHeight)
+			pad := rl.NewVector2(labelPadding, labelPadding)
+			rl.DrawRectangleV(rl.Vector2Subtract(pos, pad), rl.Vector2Add(size, rl.Vector2Scale(pad, 2)), rl.Fade(rl.Black, 0.6))
+			rl.DrawTextEx(font, b.Name, pos, labelFontSize, 1, rl.White)
+		}
+
 		rl.DrawFPS(10, screenHeight-25)
 
 		rl.EndDrawing()
 	}
 
+	if fontLoaded {
+		rl.UnloadFont(font) // while the window's GPU context still exists
+	}
 	rl.CloseWindow()
 }
 

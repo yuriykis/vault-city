@@ -403,6 +403,91 @@ func TestBuildCityEveryBuildingReachable(t *testing.T) {
 	}
 }
 
+// TestPick checks which building the ray from the screen center names:
+// the nearest hit within pickRange (R7).
+func TestPick(t *testing.T) {
+	box := func(name string, z float32) Building {
+		return Building{Name: name, Box: rl.BoundingBox{Min: rl.NewVector3(0, 0, z), Max: rl.NewVector3(3, 10, z+3)}}
+	}
+	ahead := rl.Ray{Position: rl.NewVector3(1.5, 2, 0), Direction: rl.NewVector3(0, 0, 1)}
+	for _, tt := range []struct {
+		name      string
+		ray       rl.Ray
+		buildings []Building
+		want      string // "" for none
+		wantZ     float32
+	}{
+		{"nearer of two in line", ahead, []Building{box("Far", 12), box("Near", 5)}, "Near", 5},
+		{"nearer of two, listed first", ahead, []Building{box("Near", 5), box("Far", 12)}, "Near", 5},
+		{"just within range", ahead, []Building{box("Edge", pickRange-1)}, "Edge", pickRange - 1},
+		{"beyond range", ahead, []Building{box("Beyond", pickRange+1)}, "", 0},
+		{"behind the camera", rl.Ray{Position: ahead.Position, Direction: rl.NewVector3(0, 0, -1)}, []Building{box("Near", 5)}, "", 0},
+		{"looking past it", rl.Ray{Position: ahead.Position, Direction: rl.NewVector3(1, 0, 0)}, []Building{box("Near", 5)}, "", 0},
+		{"no buildings", ahead, nil, "", 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			b, at, ok := pick(tt.ray, tt.buildings)
+			if !ok {
+				if tt.want != "" {
+					t.Errorf("picked nothing, want %q", tt.want)
+				}
+				return
+			}
+			if b.Name != tt.want || math.Abs(float64(at.Z-tt.wantZ)) > eps {
+				t.Errorf("picked %q at %v, want %q at z = %v", b.Name, at, tt.want, tt.wantZ)
+			}
+		})
+	}
+}
+
+// TestPickLowestBuildingAtEyeHeight checks that aiming straight at a note
+// nobody links to names it, not the taller building behind: at eye height
+// the ray must hit its wall, not graze its roof.
+func TestPickLowestBuildingAtEyeHeight(t *testing.T) {
+	low := Building{Name: "Low", Box: rl.BoundingBox{Min: rl.NewVector3(0, 0, 5), Max: rl.NewVector3(3, minHeight, 8)}}
+	tall := Building{Name: "Tall", Box: rl.BoundingBox{Min: rl.NewVector3(0, 0, 10), Max: rl.NewVector3(3, 20, 13)}}
+	ray := rl.Ray{Position: rl.NewVector3(1.5, eyeHeight, 0), Direction: rl.NewVector3(0, 0, 1)}
+	if b, _, ok := pick(ray, []Building{tall, low}); !ok || b.Name != "Low" {
+		t.Errorf("aiming at the low building from eye height %v names %q, want Low", eyeHeight, b.Name)
+	}
+}
+
+// TestLabelPosition checks that a 100×20 label sits centered above the aim
+// point and stays whole on an 800×450 screen.
+func TestLabelPosition(t *testing.T) {
+	size := rl.NewVector2(100, 20)
+	for _, tt := range []struct {
+		name     string
+		at, size rl.Vector2
+		want     rl.Vector2
+	}{
+		{"centered above", rl.NewVector2(400, 225), size, rl.NewVector2(350, 225-labelGap-20)},
+		{"left edge", rl.NewVector2(10, 225), size, rl.NewVector2(labelMargin, 225-labelGap-20)},
+		{"right edge", rl.NewVector2(790, 225), size, rl.NewVector2(800-labelMargin-100, 225-labelGap-20)},
+		{"top edge", rl.NewVector2(400, 5), size, rl.NewVector2(350, labelMargin)},
+		{"bottom edge", rl.NewVector2(400, 600), size, rl.NewVector2(350, 450-labelMargin-20)},
+		{"wider than the screen", rl.NewVector2(400, 225), rl.NewVector2(900, 20), rl.NewVector2(labelMargin, 225-labelGap-20)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := labelPosition(tt.at, tt.size, 800, 450); rl.Vector2Distance(got, tt.want) > eps {
+				t.Errorf("labelPosition(%v) = %v, want %v", tt.at, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLabelRunes(t *testing.T) {
+	runes := labelRunes([]Note{{Name: zabaNFC + " — Привет"}, {Name: "Żółw"}, {Name: "abc"}})
+	for _, r := range []rune("AZaz09 ~Żółw—Привет") {
+		if !slices.Contains(runes, r) {
+			t.Errorf("labelRunes lacks %q", r)
+		}
+	}
+	if !slices.IsSorted(runes) || len(slices.Compact(slices.Clone(runes))) != len(runes) {
+		t.Errorf("labelRunes is not sorted without repeats: %q", string(runes))
+	}
+}
+
 func TestBuildCityHeight(t *testing.T) {
 	c := BuildCity([]Note{{Name: "A"}, {Name: "B", Inbound: 1}, {Name: "C", Inbound: 3}, {Name: "D", Inbound: 157}})
 	for name, want := range map[string]float64{
