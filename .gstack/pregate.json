@@ -3,6 +3,7 @@
   "runner": "for f in {files}; do dirname \"$f\"; done | sort -u | sed 's|^|./|' | xargs go test -count=1",
   "dependencies": {
     "vault.go": ["vault_test.go"],
+    "city.go": ["city_test.go"],
     "main.go": ["vault_test.go"],
     "go.mod": ["vault_test.go"],
     "go.sum": ["vault_test.go"],
