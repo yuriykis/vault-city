@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -27,8 +28,9 @@ type Note struct {
 
 // Vault is everything the game knows about the vault.
 type Vault struct {
-	Notes []Note
-	Links int // every [[wikilink]] found in Notes/, resolved or not
+	Notes    []Note
+	Links    int      // every [[wikilink]] found in Notes/, resolved or not
+	Warnings []string // frontmatter that could not be read, one per problem
 }
 
 var (
@@ -51,18 +53,30 @@ func LoadVault(vault fs.FS) (Vault, error) {
 		if e.IsDir() || !isMarkdown || strings.HasPrefix(name, ".") {
 			continue
 		}
-		data, err := fs.ReadFile(vault, path.Join(notesDir, e.Name()))
+		file := path.Join(notesDir, e.Name())
+		data, err := fs.ReadFile(vault, file)
 		if err != nil {
 			return Vault{}, err
 		}
 		text := string(data)
-		front := frontmatter(text)
+		props, err := frontmatter(text)
+		if err != nil {
+			v.Warnings = append(v.Warnings, fmt.Sprintf(
+				"%s: frontmatter is not valid YAML, topic and category ignored: %v", file, err))
+		}
+		topic, topicErr := propertyName(props, "topic")
+		category, categoryErr := propertyName(props, "category")
+		for _, err := range []error{topicErr, categoryErr} {
+			if err != nil {
+				v.Warnings = append(v.Warnings, fmt.Sprintf("%s: %v", file, err))
+			}
+		}
 		v.Notes = append(v.Notes, Note{
 			// macOS may store file names decomposed (NFD), while links in note
 			// text are composed (NFC); normalize so "ż" matches "ż".
 			Name:     norm.NFC.String(name),
-			Topic:    propertyName(front, "topic"),
-			Category: propertyName(front, "category"),
+			Topic:    topic,
+			Category: category,
 		})
 		links := linkTexts(text)
 		outgoing = append(outgoing, links)
@@ -92,43 +106,54 @@ func LoadVault(vault fs.FS) (Vault, error) {
 	return v, nil
 }
 
-// frontmatter returns the YAML block between the leading "---" lines, or ""
-// when the note has none.
-func frontmatter(text string) string {
+// frontmatter parses the YAML block between the leading "---" lines into
+// its properties; a note without one has none. LF and CRLF both work.
+func frontmatter(text string) (map[string]yaml.Node, error) {
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
-		return ""
+		rest, ok = strings.CutPrefix(text, "---\r\n")
+	}
+	if !ok {
+		return nil, nil
 	}
 	front, _, ok := strings.Cut(rest, "\n---")
 	if !ok {
-		return ""
+		return nil, nil
 	}
-	return front
+	var props map[string]yaml.Node
+	if err := yaml.Unmarshal([]byte(front), &props); err != nil {
+		return nil, err
+	}
+	return props, nil
 }
 
 // propertyName returns the note name a frontmatter property points to, so
-// `topic: "[[Cooking]]"` gives "Cooking". It reads an inline value
-// or the first item of a list under the key; "" means the property is unset.
-func propertyName(front, key string) string {
-	lines := strings.Split(front, "\n")
-	for i, line := range lines {
-		value, ok := strings.CutPrefix(line, key+":")
-		if !ok {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		if value == "" && i+1 < len(lines) {
-			if item, isItem := strings.CutPrefix(strings.TrimSpace(lines[i+1]), "- "); isItem {
-				value = item
-			}
-		}
-		value = strings.Trim(value, `"'`)
-		if inner, isLink := strings.CutPrefix(value, "[["); isLink {
-			_, value = parseLink(strings.TrimSuffix(inner, "]]"))
-		}
-		return norm.NFC.String(value)
+// `topic: "[[Cooking]]"` gives "Cooking". It reads text or the first item of
+// a list; "" means the property is unset, null or an empty list. Any other
+// shape is an error, so a strange note never becomes a strange district.
+func propertyName(props map[string]yaml.Node, key string) (string, error) {
+	node, ok := props[key]
+	if !ok {
+		return "", nil
 	}
-	return ""
+	if node.Kind == yaml.SequenceNode {
+		if len(node.Content) == 0 {
+			return "", nil
+		}
+		node = *node.Content[0]
+	}
+	if node.Kind != yaml.ScalarNode {
+		return "", fmt.Errorf("%s is not text or a list of text, ignored "+
+			"(a link must be quoted: %s: \"[[Note]]\")", key, key)
+	}
+	if node.ShortTag() == "!!null" {
+		return "", nil
+	}
+	value := node.Value
+	if inner, isLink := strings.CutPrefix(value, "[["); isLink {
+		_, value = parseLink(strings.TrimSuffix(inner, "]]"))
+	}
+	return norm.NFC.String(value), nil
 }
 
 // linkTexts returns the text inside every [[wikilink]] and ![[embed]],

@@ -2,6 +2,7 @@ package main
 
 import (
 	"maps"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -60,6 +61,8 @@ func TestLoadVaultLinkForms(t *testing.T) {
 		{"frontmatter list", "---\nrelated:\n  - \"[[A]]\"\n  - \"[[B]]\"\n---\n", true},
 		{"after inline code", "`code` [[B]]", true},
 		{"after closed fence", "```\ncode\n```\n[[B]]", true},
+		{"CRLF frontmatter", "---\r\nrelated: \"[[B]]\"\r\n---\r\n", true},
+		{"CRLF fence", "```\r\n[[B]]\r\n```\r\n", false},
 		{"other folder", "[[Projects/B]]", false},
 		{"backtick fence", "```\n[[B]]\n```", false},
 		{"backtick fence with language", "```go\n[[B]]\n```", false},
@@ -216,6 +219,29 @@ func TestLoadVaultProperties(t *testing.T) {
 			text:      "---\ntopic: \"[[" + zabaNFD + "]]\"\n---\n",
 			wantTopic: zabaNFC,
 		},
+		{
+			name:         "CRLF line endings",
+			text:         "---\r\ntopic: \"[[Cooking]]\"\r\ncategory: \"[[Knowledge]]\"\r\n---\r\nText\r\n",
+			wantTopic:    "Cooking",
+			wantCategory: "Knowledge",
+		},
+		{
+			name:      "inline list takes the first item",
+			text:      "---\ntopic: [\"[[Cooking]]\", \"[[Baking]]\"]\n---\n",
+			wantTopic: "Cooking",
+		},
+		{
+			name: "null",
+			text: "---\ntopic: null\ncategory: ~\n---\n",
+		},
+		{
+			name: "empty values",
+			text: "---\ntopic: []\ncategory: \"\"\n---\n",
+		},
+		{
+			name: "only similar keys",
+			text: "---\ntopics: \"[[Cooking]]\"\nmy category: \"[[Knowledge]]\"\n---\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -224,6 +250,65 @@ func TestLoadVaultProperties(t *testing.T) {
 			if n.Topic != tt.wantTopic || n.Category != tt.wantCategory {
 				t.Errorf("topic, category = %q, %q; want %q, %q",
 					n.Topic, n.Category, tt.wantTopic, tt.wantCategory)
+			}
+			if len(v.Warnings) > 0 {
+				t.Errorf("unexpected warnings: %q", v.Warnings)
+			}
+		})
+	}
+}
+
+// TestLoadVaultWarnings checks that frontmatter which can't be read gives
+// a warning naming the note and empty values, not a district made of raw
+// text.
+func TestLoadVaultWarnings(t *testing.T) {
+	tests := []struct {
+		name         string
+		text         string
+		wantCategory string
+		wantWarnings int
+	}{
+		{
+			name:         "map under topic",
+			text:         "---\ntopic:\n  name: Cooking\ncategory: \"[[Knowledge]]\"\n---\n",
+			wantCategory: "Knowledge",
+			wantWarnings: 1,
+		},
+		{
+			name:         "unquoted link is a nested list in YAML",
+			text:         "---\ntopic: [[Cooking]]\ncategory: \"[[Knowledge]]\"\n---\n",
+			wantCategory: "Knowledge",
+			wantWarnings: 1,
+		},
+		{
+			name:         "both properties unreadable",
+			text:         "---\ntopic:\n  - [[Cooking]]\ncategory:\n  color: red\n---\n",
+			wantWarnings: 2,
+		},
+		{
+			name:         "invalid YAML",
+			text:         "---\ntopic: \"[[Cooking]]\"\ncategory: [unclosed\n---\n",
+			wantWarnings: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := load(t, files{"Notes/A.md": tt.text, "Notes/B.md": "[[A]]"})
+			if len(v.Notes) != 2 || v.Notes[0].Inbound != 1 {
+				t.Errorf("notes = %+v, want A with 1 inbound link and B", v.Notes)
+			}
+			n := v.Notes[0]
+			if n.Topic != "" || n.Category != tt.wantCategory {
+				t.Errorf("topic, category = %q, %q; want %q, %q",
+					n.Topic, n.Category, "", tt.wantCategory)
+			}
+			if len(v.Warnings) != tt.wantWarnings {
+				t.Fatalf("warnings = %q, want %d", v.Warnings, tt.wantWarnings)
+			}
+			for _, w := range v.Warnings {
+				if !strings.HasPrefix(w, "Notes/A.md: ") {
+					t.Errorf("warning %q does not start with the note's path", w)
+				}
 			}
 		})
 	}

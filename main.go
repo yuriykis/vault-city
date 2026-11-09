@@ -48,6 +48,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("read vault %q: %v", *vaultPath, err)
 	}
+	for _, w := range vault.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
 	fmt.Println("Vault:", *vaultPath)
 	printSummary(os.Stdout, vault)
 

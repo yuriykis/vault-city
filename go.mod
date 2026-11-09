@@ -6,6 +6,7 @@ require (
 	github.com/gen2brain/raylib-go/raylib v0.60.1
 	github.com/joho/godotenv v1.5.1
 	github.com/magefile/mage v1.17.2
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/text v0.43.0
 )
 
