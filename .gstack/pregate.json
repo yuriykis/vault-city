@@ -8,7 +8,8 @@
     "go.mod": ["vault_test.go"],
     "go.sum": ["vault_test.go"],
     "magefile.go": [],
-    ".env.example": []
+    ".env.example": [],
+    ".github/workflows/ci.yml": []
   },
   "empty_lanes": [],
   "selection": {},
