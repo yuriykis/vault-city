@@ -4,3 +4,5 @@
 # Private design notes about my own vault
 specs/
 .vscode/
+# Built binaries (mage build)
+bin/
