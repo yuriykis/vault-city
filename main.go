@@ -169,11 +169,17 @@ func main() {
 
 		rl.BeginMode3D(camera)
 
-		// Everything fades into the sky with distance (gstack-shortcut(dec-5227f913)).
+		// Everything fades into the sky with distance (gstack-shortcut(dec-5227f913)),
+		// except in the orthographic view: there the camera stands far from
+		// what it shows and distance doesn't shrink anything.
+		fade := fogColor
+		if camera.Projection == rl.CameraOrthographic {
+			fade = func(c rl.Color, _ float32) rl.Color { return c }
+		}
 		for _, t := range tiles {
 			size := rl.Vector3Subtract(t.Max, t.Min)
 			center := rl.Vector3Add(t.Min, rl.Vector3Scale(size, 0.5))
-			rl.DrawPlane(center, rl.NewVector2(size.X, size.Z), fogColor(rl.LightGray, distanceTo(camera.Position, t)))
+			rl.DrawPlane(center, rl.NewVector2(size.X, size.Z), fade(rl.LightGray, distanceTo(camera.Position, t)))
 		}
 
 		// One box per note; the wires keep edges visible without lighting.
@@ -181,8 +187,8 @@ func main() {
 			size := rl.Vector3Subtract(b.Box.Max, b.Box.Min)
 			center := rl.Vector3Add(b.Box.Min, rl.Vector3Scale(size, 0.5))
 			distance := distanceTo(camera.Position, b.Box)
-			rl.DrawCubeV(center, size, fogColor(b.Color, distance))
-			rl.DrawCubeWiresV(center, size, fogColor(rl.DarkGray, distance))
+			rl.DrawCubeV(center, size, fade(b.Color, distance))
+			rl.DrawCubeWiresV(center, size, fade(rl.DarkGray, distance))
 		}
 
 		// Draw player cube
